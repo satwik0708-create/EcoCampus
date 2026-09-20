@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const user = await requireApiStudent();
-    enforceRateLimit(request, "food-write", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "food-write", RATE_LIMITS.write, user.id);
 
     const input = await parseJsonBody(request, foodWasteRecordSchema);
     const outcome = await recordFoodWasteActivity(user.id, input);

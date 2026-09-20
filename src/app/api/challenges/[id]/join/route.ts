@@ -17,7 +17,7 @@ export async function POST(
   try {
     assertSameOrigin(request);
     const user = await requireApiStudent();
-    enforceRateLimit(request, "challenge-join", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "challenge-join", RATE_LIMITS.write, user.id);
 
     const { id } = await params;
     const result = await joinChallenge(user.id, id);
@@ -54,7 +54,7 @@ export async function DELETE(
   try {
     assertSameOrigin(request);
     const user = await requireApiStudent();
-    enforceRateLimit(request, "challenge-leave", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "challenge-leave", RATE_LIMITS.write, user.id);
 
     const { id } = await params;
     await leaveChallenge(user.id, id);

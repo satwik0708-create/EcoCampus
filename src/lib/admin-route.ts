@@ -18,7 +18,7 @@ export async function beginAdminMutation(
 ): Promise<SessionUser> {
   assertSameOrigin(request);
   const admin = await requireApiAdmin();
-  enforceRateLimit(request, scope, RATE_LIMITS.adminWrite, admin.id);
+  await enforceRateLimit(request, scope, RATE_LIMITS.adminWrite, admin.id);
   return admin;
 }
 

@@ -21,7 +21,7 @@ export async function PATCH(request: Request) {
   try {
     assertSameOrigin(request);
     const user = await requireApiUser();
-    enforceRateLimit(request, "profile", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "profile", RATE_LIMITS.write, user.id);
 
     const input = await parseJsonBody(request, updateProfileSchema);
 

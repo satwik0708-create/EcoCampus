@@ -23,7 +23,7 @@ import { HttpError } from "@/lib/auth/guards";
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    enforceRateLimit(request, "reset", RATE_LIMITS.resetPassword);
+    await enforceRateLimit(request, "reset", RATE_LIMITS.resetPassword);
 
     const input = await parseJsonBody(request, resetPasswordSchema);
 

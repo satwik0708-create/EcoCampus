@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const user = await requireApiStudent();
-    enforceRateLimit(request, "waste-write", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "waste-write", RATE_LIMITS.write, user.id);
 
     const input = await parseJsonBody(request, wasteRecordSchema);
     const outcome = await recordWasteActivity(user.id, input);

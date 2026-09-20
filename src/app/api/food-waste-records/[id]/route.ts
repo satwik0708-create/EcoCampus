@@ -11,7 +11,7 @@ export async function DELETE(
   try {
     assertSameOrigin(request);
     const user = await requireApiStudent();
-    enforceRateLimit(request, "food-delete", RATE_LIMITS.write, user.id);
+    await enforceRateLimit(request, "food-delete", RATE_LIMITS.write, user.id);
 
     const { id } = await params;
     const record = await prisma.foodWasteRecord.findUnique({

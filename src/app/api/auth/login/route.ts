@@ -23,8 +23,8 @@ export async function POST(request: Request) {
 
     // Limit per client AND per targeted account, so one attacker cannot
     // spread a password-spray across many IPs against a single mailbox.
-    enforceRateLimit(request, "login", RATE_LIMITS.login);
-    enforceRateLimit(request, "login-account", RATE_LIMITS.login, input.email);
+    await enforceRateLimit(request, "login", RATE_LIMITS.login);
+    await enforceRateLimit(request, "login-account", RATE_LIMITS.login, input.email);
 
     const user = await prisma.user.findUnique({ where: { email: input.email } });
 
