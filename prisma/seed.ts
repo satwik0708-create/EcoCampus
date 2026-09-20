@@ -185,10 +185,37 @@ const FOOD_UNITS: Array<{ unit: Unit; min: number; max: number; decimals: number
 ];
 
 async function main() {
-  if (process.env.NODE_ENV === "production") {
+  // Vercel sets NODE_ENV=production for preview builds too, so NODE_ENV
+  // alone cannot distinguish "a real deployment" from "a throwaway preview".
+  // VERCEL_ENV can, and it is checked first and hardest.
+  const vercelEnv = process.env.VERCEL_ENV;
+  const previewSeedRequested =
+    vercelEnv === "preview" && process.env.SEED_PREVIEW_DATABASE === "true";
+
+  if (vercelEnv === "production") {
+    throw new Error(
+      "Refusing to seed: this is a production deployment. Use `npm run create-admin` instead.",
+    );
+  }
+
+  if (!previewSeedRequested && process.env.NODE_ENV === "production") {
     throw new Error(
       "Refusing to seed: NODE_ENV is production. This script creates demo accounts with a known password.",
     );
+  }
+
+  if (previewSeedRequested) {
+    // A preview database is throwaway, but a reviewer may have entered data
+    // into it. Only seed while it is still empty, so pushing another commit
+    // to the same PR does not wipe what they were looking at.
+    const existingUsers = await prisma.user.count();
+    if (existingUsers > 0) {
+      console.info(
+        `Preview database already has ${existingUsers} user(s). Leaving it as it is.`,
+      );
+      return;
+    }
+    console.info("Seeding an empty preview database.");
   }
 
   const demoPassword = process.env.SEED_DEMO_PASSWORD;
