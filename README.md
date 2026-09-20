@@ -226,6 +226,8 @@ All variables are documented in [`.env.example`](.env.example).
 | `CAMPUS_TIMEZONE` | no | IANA zone used for every campus-day calculation — streaks, daily bonuses, challenge windows. Default `Asia/Kolkata`. |
 | `UPSTASH_REDIS_REST_URL` | no | Upstash REST URL. With the token below, enables distributed rate limiting. Recommended on any multi-instance deployment. |
 | `UPSTASH_REDIS_REST_TOKEN` | no | Upstash REST token. Both must be set for Redis to be used. |
+| `ALLOW_PREVIEW_MIGRATIONS` | no | Set to `true` on Vercel's Preview environment **only** once Preview has its own database. See *Preview deployments*. |
+| `SEED_PREVIEW_DATABASE` | no | Set to `true` on Preview to fill an empty preview database with demo content. |
 | `ECOCAMPUS_EXPOSE_RESET_TOKENS` | no | **Development only.** Returns the password reset link in the API response so the flow can be exercised without a mail server. Forced off whenever `NODE_ENV=production`. |
 | `SEED_DEMO_PASSWORD` | seed only | Password given to every seeded demo account. The seed refuses to run without it. |
 
@@ -485,11 +487,9 @@ production. The first is force-disabled whenever `NODE_ENV=production`, and
 the second only feeds a seed script that refuses to run there — but leaving
 them unset keeps the intent unambiguous.
 
-**On preview environments:** either leave `DATABASE_URL` unset for Preview,
-or point it at a separate branch database. The build script already refuses
-to migrate on anything but production, so an unreviewed branch cannot alter
-your production schema; giving previews their own database also stops them
-writing rows into it.
+**On preview environments:** see *Preview deployments* below. By default a
+preview build does not migrate anything, so an unreviewed branch cannot
+alter your production schema.
 
 #### 4. Deploy
 
@@ -520,6 +520,73 @@ the recovery path if you are ever locked out.
 
 Everything else is then done through the UI: students self-register, and you
 promote further administrators from **Admin → Users**.
+
+### Preview deployments
+
+Vercel builds a preview for every push to a branch with an open PR. Left
+unconfigured, those previews share production's `DATABASE_URL` and write
+rows into your live data. Giving them their own database fixes that — but it
+takes two settings, not one, and the second is easy to miss.
+
+#### Why two settings
+
+A dedicated preview database starts **empty**. The build script skips
+migrations outside production by default, so a preview pointed at a fresh
+database would have no schema and every page touching it returns
+`P2021 — table does not exist`. Pointing Preview at its own database
+therefore *requires* enabling preview migrations:
+
+| `VERCEL_ENV` | `ALLOW_PREVIEW_MIGRATIONS` | Result |
+| --- | --- | --- |
+| `production` | anything | Migrates. Always. |
+| `preview` | unset | Skips — safe default for a shared connection string |
+| `preview` | `true` | Migrates — correct once Preview has its own database |
+
+`ALLOW_PREVIEW_MIGRATIONS` is your assertion that Preview points somewhere
+that is not production. **Do not set it before that is true.** Each build
+logs the host and database name it is about to migrate, so a
+misconfiguration is visible in the build log rather than silent.
+
+#### Option A — a database branch per preview (recommended)
+
+Neon's Vercel integration creates a database branch for each preview
+deployment and sets `DATABASE_URL` for it automatically. Every PR gets a
+genuinely isolated copy, and it is removed with the branch.
+
+1. Install the **Neon** integration from the Vercel marketplace and connect
+   it to this project.
+2. Enable branching for preview deployments in the integration settings.
+3. Set `ALLOW_PREVIEW_MIGRATIONS=true` on the **Preview** environment.
+
+Supabase offers equivalent branching on its paid plans.
+
+#### Option B — one shared preview database
+
+Simpler, and enough for a small team. Previews share a database with each
+other, but not with production.
+
+1. Create a second database (a second Neon project or branch is fine).
+2. In Vercel, set `DATABASE_URL` and `DIRECT_DATABASE_URL` for the
+   **Preview** environment only, pointing at it.
+3. Set `ALLOW_PREVIEW_MIGRATIONS=true` on **Preview**.
+
+#### Seeding previews with demo content
+
+An empty preview is hard to review — no guide entries, no challenges, no
+data in the charts. Set these on the **Preview** environment to fill it:
+
+| Variable | Value |
+| --- | --- |
+| `SEED_PREVIEW_DATABASE` | `true` |
+| `SEED_DEMO_PASSWORD` | a password for the demo accounts |
+
+The seed runs **only when the database has no users**, so pushing another
+commit to the same PR will not wipe data a reviewer has entered. Reviewers
+sign in as `student@ecocampus.local` or `admin@ecocampus.local` with the
+password you set.
+
+The seed refuses outright when `VERCEL_ENV=production`, regardless of any
+other variable, so this cannot reach your live data.
 
 ### Other platforms
 
