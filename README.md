@@ -194,7 +194,8 @@ npm install
 
 # 2. Configure the environment
 cp .env.example .env
-#    Edit .env and set DATABASE_URL, CAMPUS_TIMEZONE and SEED_DEMO_PASSWORD.
+#    Edit .env and set DATABASE_URL, DIRECT_DATABASE_URL, CAMPUS_TIMEZONE
+#    and SEED_DEMO_PASSWORD. Locally the two URLs are the same value.
 
 # 3. Create the database (if it does not exist)
 createdb ecocampus
@@ -438,36 +439,142 @@ Both primary flows have been exercised against a running production build:
 
 ## Production deployment
 
-1. **Provision PostgreSQL** and set `DATABASE_URL`.
-2. **Set the environment**: `NODE_ENV=production`, a real `CAMPUS_TIMEZONE`,
-   and leave `ECOCAMPUS_EXPOSE_RESET_TOKENS` unset.
-3. **Apply migrations**: `npm run db:deploy`.
-4. **Do not seed.** `npm run db:seed` throws when `NODE_ENV=production`.
-5. **Create the first administrator** directly against the database, using a
-   bcrypt hash at cost 12.
-6. **Build and start**: `npm run build && npm start`.
-7. **Terminate TLS** in front of the app. Session cookies are marked `Secure`
-   in production and will not be set over plain HTTP.
-8. **Set a trusted proxy.** The rate limiter reads the first hop of
-   `X-Forwarded-For`; make sure only your proxy can set that header.
+### Deploying to Vercel
+
+The repository is configured for Vercel: `vercel.json` points the build at
+`scripts/vercel-build.sh`, which generates the Prisma client, applies
+migrations **only for production deployments**, and then builds.
+
+#### 1. Provision PostgreSQL
+
+Vercel runs serverless functions, so the database must be reachable over a
+**connection pooler**. Without one, each function invocation opens its own
+connection and the database hits its connection limit under very ordinary
+load. [Neon](https://neon.tech) and [Supabase](https://supabase.com) both
+give you two connection strings; you need both:
+
+| Value | Which string | Used by |
+| --- | --- | --- |
+| `DATABASE_URL` | the **pooled** one, with `?pgbouncer=true&connection_limit=1` appended | the application at runtime |
+| `DIRECT_DATABASE_URL` | the **direct** one | `prisma migrate`, which needs a real session |
+
+The schema declares both (`url` and `directUrl`), so migrations and runtime
+queries each take the right path automatically.
+
+#### 2. Import the repository
+
+In Vercel, **Add New → Project**, import `satwik0708-create/EcoCampus`, and
+accept the detected Next.js framework. `vercel.json` supplies the build and
+install commands, so leave those fields alone.
+
+#### 3. Set environment variables
+
+Set these for the **Production** environment:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | pooled connection string |
+| `DIRECT_DATABASE_URL` | direct connection string |
+| `CAMPUS_TIMEZONE` | your campus IANA zone, e.g. `Asia/Kolkata` |
+| `SESSION_TTL_HOURS` | optional, defaults to `168` |
+
+Do **not** set `ECOCAMPUS_EXPOSE_RESET_TOKENS` or `SEED_DEMO_PASSWORD` in
+production. The first is force-disabled whenever `NODE_ENV=production`, and
+the second only feeds a seed script that refuses to run there — but leaving
+them unset keeps the intent unambiguous.
+
+**On preview environments:** either leave `DATABASE_URL` unset for Preview,
+or point it at a separate branch database. The build script already refuses
+to migrate on anything but production, so an unreviewed branch cannot alter
+your production schema; giving previews their own database also stops them
+writing rows into it.
+
+#### 4. Deploy
+
+Push to `main`, or trigger a deploy from the dashboard. The production build
+runs `prisma migrate deploy` before `next build`, so the schema is in place
+before the application starts.
+
+#### 5. Create the first administrator
+
+`npm run db:seed` refuses to run in production, so there is a dedicated
+script. Run it once against the production database:
+
+```bash
+DATABASE_URL="<pooled url>" \
+DIRECT_DATABASE_URL="<direct url>" \
+ADMIN_EMAIL="you@campus.edu" \
+ADMIN_NAME="Your Name" \
+ADMIN_DISPLAY_NAME="sustainability_office" \
+ADMIN_PASSWORD='a-long-unique-password' \
+npm run create-admin
+```
+
+The password is read from the environment rather than from arguments so it
+does not reach your shell history or the process list. The script enforces
+the same password policy as registration, and re-running it with an existing
+email promotes that account and rotates its password — which also makes it
+the recovery path if you are ever locked out.
+
+Everything else is then done through the UI: students self-register, and you
+promote further administrators from **Admin → Users**.
+
+### Other platforms
+
+Nothing is Vercel-specific beyond `vercel.json`. On any Node host:
+
+```bash
+npm ci
+npx prisma migrate deploy
+npm run build
+npm start
+```
+
+Terminate TLS in front of the application — session cookies are marked
+`Secure` in production and will not be set over plain HTTP. Set a trusted
+proxy too: the rate limiter reads the first hop of `X-Forwarded-For`, so
+only your proxy should be able to set that header.
+
+### Serverless caveat: the rate limiter
+
+Read this before going live on Vercel.
+
+The rate limiter (`src/lib/auth/rate-limit.ts`) keeps its state in process
+memory. That is effective on a single long-lived server, but on a serverless
+platform each instance has its own memory and instances come and go, so the
+effective limit is *per instance*, not per deployment. An attacker spreading
+requests across cold starts gets considerably more attempts than the
+configured eight-per-ten-minutes on sign-in.
+
+The passwords are bcrypt at cost 12 and sign-in responses are generic, so
+this is not an open door — but it is materially weaker than the numbers in
+the table suggest. Before exposing the app to the public internet, do one of:
+
+- enable **Vercel Firewall / Attack Challenge Mode**, or put Cloudflare in
+  front, and rate-limit `/api/auth/*` there;
+- or replace the limiter's `Map` with a shared store (Upstash Redis fits the
+  serverless model). `rateLimit()` is a single function with one call site
+  per route, so this is a contained change;
+- or deploy to a single long-lived Node process instead, where the existing
+  limiter behaves as documented.
 
 ### Delivering password reset emails
 
 EcoCampus integrates no external email provider, by design — the brief rules
 out third-party APIs. The reset URL is written to the server log at `info`
-level for an operator to deliver. To wire up a mail service, send the message
-from `src/app/api/auth/forgot-password/route.ts` where the URL is currently
+level (visible under **Vercel → Logs**) for an operator to deliver. To wire
+up a mail service, send the message from
+`src/app/api/auth/forgot-password/route.ts` where the URL is currently
 logged; nothing else needs to change.
-
----
 
 ## Known limitations
 
 Stated plainly rather than hidden.
 
 - **The rate limiter is per process.** It holds its state in memory, which
-  covers a single-instance deployment. A horizontally scaled deployment needs
-  a shared store (Redis) or an edge rate limit in front of the application.
+  covers a single-instance deployment. A serverless or horizontally scaled
+  deployment needs a shared store (Redis) or an edge rate limit in front of
+  the application — see *Serverless caveat* under Production deployment.
 - **No email delivery.** See above — this follows from the no-external-APIs
   constraint, not from an omission.
 - **Mass totals under-report deliberately.** Entries logged in pieces, plates

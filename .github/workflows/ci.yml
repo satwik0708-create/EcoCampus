@@ -37,6 +37,11 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ecocampus_test?schema=public
+      # The schema declares a `directUrl` for migrations. The CI service
+      # container is a direct connection with no pooler in front, so both
+      # URLs are the same here — but the variable must be set, or the
+      # Prisma CLI refuses to resolve the schema at all.
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ecocampus_test?schema=public
       CAMPUS_TIMEZONE: Asia/Kolkata
       SESSION_COOKIE_NAME: ecocampus_session
       SESSION_TTL_HOURS: "168"
