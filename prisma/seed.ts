@@ -21,6 +21,11 @@
  *     would exercise.
  */
 
+// Loaded explicitly rather than relying on the Prisma client happening to
+// pick up .env as a side effect — that behaviour is not contractual, and
+// depending on it made this script fail with a confusing "SEED_DEMO_PASSWORD
+// must be set" when the variable was in fact present.
+import "dotenv/config";
 import {
   DisposalAction,
   FoodCategory,

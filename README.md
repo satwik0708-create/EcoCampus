@@ -224,6 +224,8 @@ All variables are documented in [`.env.example`](.env.example).
 | `SESSION_COOKIE_NAME` | no | Session cookie name. Default `ecocampus_session`. |
 | `SESSION_TTL_HOURS` | no | Session lifetime in hours. Default `168` (7 days). |
 | `CAMPUS_TIMEZONE` | no | IANA zone used for every campus-day calculation — streaks, daily bonuses, challenge windows. Default `Asia/Kolkata`. |
+| `UPSTASH_REDIS_REST_URL` | no | Upstash REST URL. With the token below, enables distributed rate limiting. Recommended on any multi-instance deployment. |
+| `UPSTASH_REDIS_REST_TOKEN` | no | Upstash REST token. Both must be set for Redis to be used. |
 | `ECOCAMPUS_EXPOSE_RESET_TOKENS` | no | **Development only.** Returns the password reset link in the API response so the flow can be exercised without a mail server. Forced off whenever `NODE_ENV=production`. |
 | `SEED_DEMO_PASSWORD` | seed only | Password given to every seeded demo account. The seed refuses to run without it. |
 
@@ -357,7 +359,7 @@ wins; ties break on the rule code, so the output is completely deterministic.
 | Privilege escalation | `role` is absent from every user-writable schema. Registration always creates a `STUDENT`. |
 | Point tampering | No endpoint accepts a point value. No endpoint accepts a challenge completion flag. |
 | CSRF | SameSite=Lax cookies plus an explicit Origin/Host check on every mutating request. |
-| Rate limiting | Fixed-window limiter on sign-in (per IP **and** per targeted email), registration, password reset and all writes. |
+| Rate limiting | Fixed-window limiter on sign-in (per IP **and** per targeted email), registration, password reset and all writes. Backed by Upstash Redis when configured, so counters are shared across instances; falls back to an in-process counter otherwise. |
 | Account enumeration | Sign-in returns one generic message and burns comparable time on the unknown-account path. Password reset returns an identical response either way. |
 | Reset tokens | Single use, one hour, hash-only storage. A successful reset destroys every session for the account. |
 | Data minimisation | The leaderboard and the admin console select `displayName` only — emails are never loaded into those queries. |
@@ -535,28 +537,41 @@ Terminate TLS in front of the application — session cookies are marked
 proxy too: the rate limiter reads the first hop of `X-Forwarded-For`, so
 only your proxy should be able to set that header.
 
-### Serverless caveat: the rate limiter
+### Rate limiting across instances
 
-Read this before going live on Vercel.
+The limiter has two backends and picks one from the environment:
 
-The rate limiter (`src/lib/auth/rate-limit.ts`) keeps its state in process
-memory. That is effective on a single long-lived server, but on a serverless
-platform each instance has its own memory and instances come and go, so the
-effective limit is *per instance*, not per deployment. An attacker spreading
-requests across cold starts gets considerably more attempts than the
-configured eight-per-ten-minutes on sign-in.
+| Backend | When | Behaviour |
+| --- | --- | --- |
+| **Upstash Redis** | `UPSTASH_REDIS_REST_URL` **and** `UPSTASH_REDIS_REST_TOKEN` are both set | Counters shared across every instance |
+| **In-memory** | either variable missing | Per-process counter |
 
-The passwords are bcrypt at cost 12 and sign-in responses are generic, so
-this is not an open door — but it is materially weaker than the numbers in
-the table suggest. Before exposing the app to the public internet, do one of:
+On a serverless platform the in-memory backend is materially weaker than its
+configured numbers suggest: each invocation may land on a fresh instance, so
+an attacker spreading requests across cold starts multiplies their budget.
+**Configure Redis before exposing the application to the public internet.**
 
-- enable **Vercel Firewall / Attack Challenge Mode**, or put Cloudflare in
-  front, and rate-limit `/api/auth/*` there;
-- or replace the limiter's `Map` with a shared store (Upstash Redis fits the
-  serverless model). `rateLimit()` is a single function with one call site
-  per route, so this is a contained change;
-- or deploy to a single long-lived Node process instead, where the existing
-  limiter behaves as documented.
+To set it up: create a database at [Upstash](https://upstash.com), copy the
+REST URL and REST token, and add both to your Production environment. No
+code change is needed — the limiter detects them at runtime.
+
+Two deliberate behaviours worth knowing:
+
+- **Half-configured is treated as unconfigured.** Setting only one of the two
+  variables selects the in-memory backend rather than failing, so a partial
+  configuration cannot leave a deployment believing it is protected when it
+  is not.
+- **Redis failure degrades, it does not break.** If Redis is unreachable the
+  limiter logs and falls back to the in-process counter. A limiter that took
+  the whole application down with its cache would be worse than a weaker
+  limiter. The Redis call is bounded at one second so a dead cache cannot
+  become the slowest thing in the request — there is a regression test
+  asserting that bound.
+
+If you would rather not run Redis, the alternatives are to put Cloudflare or
+Vercel Firewall in front of `/api/auth/*`, or to deploy to a single
+long-lived Node process, where the in-memory backend behaves exactly as
+documented.
 
 ### Delivering password reset emails
 
@@ -571,10 +586,11 @@ logged; nothing else needs to change.
 
 Stated plainly rather than hidden.
 
-- **The rate limiter is per process.** It holds its state in memory, which
-  covers a single-instance deployment. A serverless or horizontally scaled
-  deployment needs a shared store (Redis) or an edge rate limit in front of
-  the application — see *Serverless caveat* under Production deployment.
+- **Rate limiting needs Redis on multi-instance deployments.** Without
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` the limiter falls
+  back to a per-process counter, which is weaker than its configured numbers
+  on serverless. See *Rate limiting across instances* under Production
+  deployment.
 - **No email delivery.** See above — this follows from the no-external-APIs
   constraint, not from an omission.
 - **Mass totals under-report deliberately.** Entries logged in pieces, plates

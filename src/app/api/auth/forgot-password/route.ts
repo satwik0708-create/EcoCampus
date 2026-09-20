@@ -34,7 +34,7 @@ const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    enforceRateLimit(request, "forgot", RATE_LIMITS.forgotPassword);
+    await enforceRateLimit(request, "forgot", RATE_LIMITS.forgotPassword);
 
     const { email } = await parseJsonBody(request, forgotPasswordSchema);
 

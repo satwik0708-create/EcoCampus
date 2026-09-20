@@ -2,7 +2,7 @@
   "name": "ecocampus",
   "version": "1.0.0",
   "private": true,
-  "description": "EcoCampus \u2014 a campus sustainability platform for tracking, learning and acting on responsible consumption and waste management (UN SDG 12).",
+  "description": "EcoCampus — a campus sustainability platform for tracking, learning and acting on responsible consumption and waste management (UN SDG 12).",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -37,6 +37,8 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@upstash/ratelimit": "^2.1.0",
+    "@upstash/redis": "^1.38.4",
     "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

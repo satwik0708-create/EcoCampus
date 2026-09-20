@@ -23,7 +23,7 @@ import { HttpError } from "@/lib/auth/guards";
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    enforceRateLimit(request, "register", RATE_LIMITS.register);
+    await enforceRateLimit(request, "register", RATE_LIMITS.register);
 
     const input = await parseJsonBody(request, registerSchema);
 

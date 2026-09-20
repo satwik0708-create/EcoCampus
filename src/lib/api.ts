@@ -129,13 +129,13 @@ export function clientKey(request: Request): string {
   return request.headers.get("x-real-ip") ?? "unknown";
 }
 
-export function enforceRateLimit(
+export async function enforceRateLimit(
   request: Request,
   scope: string,
   config: { limit: number; windowMs: number },
   extraKey = "",
-): RateLimitResult {
-  const result = rateLimit(
+): Promise<RateLimitResult> {
+  const result = await rateLimit(
     `${scope}:${clientKey(request)}${extraKey ? `:${extraKey}` : ""}`,
     config.limit,
     config.windowMs,

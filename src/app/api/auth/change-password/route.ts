@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const actor = await requireApiUser();
-    enforceRateLimit(request, "change-password", RATE_LIMITS.resetPassword, actor.id);
+    await enforceRateLimit(request, "change-password", RATE_LIMITS.resetPassword, actor.id);
 
     const input = await parseJsonBody(request, changePasswordSchema);
 
