@@ -412,6 +412,14 @@ your development data survives a run.
 | `activity.integration.test.ts` | The full pipeline end to end against PostgreSQL. |
 | `auth.integration.test.ts` | Hashing, token storage, ownership, CSRF, role storage. |
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs typecheck, lint,
+the full test suite and a production build on every pull request. It
+provisions a PostgreSQL 16 service container, because the integration tests
+need a real database — running them against a mock would not exercise the
+transactional and unique-constraint behaviour they exist to cover.
+
 ### Manual verification
 
 Both primary flows have been exercised against a running production build:

@@ -11,6 +11,16 @@ import { RegisterForm } from "@/app/(auth)/register/register-form";
 
 export const metadata = { title: "Create an account" };
 
+/**
+ * Rendered per request rather than prerendered.
+ *
+ * The department list is read from the database, so prerendering this page
+ * would (a) require a reachable database during `next build`, which is a
+ * poor deployment constraint, and (b) freeze the list into the build — a
+ * department added afterwards would not appear until the next deploy.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function RegisterPage() {
   // Departments come from the database so the dropdown always matches what
   // the institution has actually configured.
