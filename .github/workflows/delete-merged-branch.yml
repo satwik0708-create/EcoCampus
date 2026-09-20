@@ -1,0 +1,63 @@
+name: Delete merged branch
+
+# Deletes a pull request's head branch once the PR is merged.
+#
+# This reproduces the repository setting "Automatically delete head branches"
+# as a workflow, so the behaviour lives in version control and needs no
+# administrative access to enable. If that setting is ever switched on, this
+# workflow simply finds the branch already gone and exits quietly — the two
+# do not conflict.
+
+on:
+  pull_request:
+    types: [closed]
+
+# Only the ability to delete a ref. Nothing else.
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    name: Delete the head branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # Guards, in order:
+    #  - the PR was merged, not just closed;
+    #  - the branch lives in this repository (a fork's branch is not ours to
+    #    delete, and the token could not do it anyway);
+    #  - it is not the default branch, which must never be deleted.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != github.event.repository.default_branch
+
+    steps:
+      - name: Delete the head branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            core.info(`Deleting branch: ${branch}`);
+
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branch}`,
+              });
+              core.info(`Deleted ${branch}.`);
+            } catch (error) {
+              // 422 is what GitHub returns when the ref is already gone —
+              // someone clicked "Delete branch", or the repository setting
+              // beat us to it. That is the desired end state, not a failure.
+              if (error.status === 422 || error.status === 404) {
+                core.info(`${branch} was already deleted. Nothing to do.`);
+                return;
+              }
+              // Anything else is a real problem and should be visible,
+              // but it must not fail the merge's check history either.
+              core.warning(
+                `Could not delete ${branch}: ${error.status} ${error.message}`,
+              );
+            }
