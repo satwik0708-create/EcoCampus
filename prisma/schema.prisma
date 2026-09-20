@@ -1,0 +1,435 @@
+// EcoCampus database schema
+// ---------------------------------------------------------------------------
+// A campus sustainability platform aligned with UN SDG 12.
+// Every number surfaced in the product is derived from these tables — there is
+// no hardcoded statistic anywhere in the UI.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — the "predefined categories" the specification requires. Students can
+// never invent a category; the database rejects anything outside these sets.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum WasteCategory {
+  PLASTIC
+  PAPER
+  GLASS
+  METAL
+  EWASTE
+  ORGANIC
+  GENERAL
+  OTHER
+}
+
+enum FoodCategory {
+  COOKED_FOOD
+  FRUITS
+  VEGETABLES
+  GRAINS
+  DAIRY
+  BEVERAGES
+  OTHER
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum Unit {
+  GRAM
+  KILOGRAM
+  PIECE
+  LITRE
+  MILLILITRE
+  PLATE
+  SERVING
+}
+
+enum DisposalAction {
+  RECYCLE
+  COMPOST
+  REUSE
+  SPECIAL_DISPOSAL
+  GENERAL_WASTE
+}
+
+/// What a challenge measures. Progress is always recomputed from real records —
+/// there is no "mark as complete" button anywhere in the product.
+enum ChallengeMetric {
+  RECORD_COUNT /// number of qualifying records logged
+  ACTIVE_DAYS /// distinct campus-local days with at least one qualifying record
+  MASS_GRAMS /// summed mass of qualifying records (mass-based units only)
+}
+
+/// Which records a challenge counts.
+enum ChallengeScope {
+  WASTE
+  FOOD_WASTE
+  ANY
+}
+
+enum PointReason {
+  WASTE_RECORD
+  FOOD_WASTE_RECORD
+  DAILY_FIRST_ACTIVITY
+  SEGREGATION_BONUS
+  STREAK_MILESTONE
+  CHALLENGE_COMPLETION
+  ADMIN_ADJUSTMENT
+}
+
+/// Condition evaluated by the deterministic recommendation engine.
+enum RecommendationTrigger {
+  LATEST_WASTE_CATEGORY /// most recent waste record matches matchWasteCategory
+  LATEST_FOOD_CATEGORY /// most recent food waste record matches matchFoodCategory
+  FREQUENT_WASTE_CATEGORY /// >= threshold records of matchWasteCategory in window
+  FREQUENT_FOOD_CATEGORY /// >= threshold food records of matchFoodCategory in window
+  HIGH_FOOD_WASTE /// >= threshold food waste records in window
+  NO_RECENT_ACTIVITY /// no qualifying activity for >= threshold days
+  NO_ACTIVE_CHALLENGE /// student has joined no in-flight challenge
+  STREAK_AT_RISK /// active streak but nothing recorded today
+  GENERAL /// always matches; acts as the deterministic fallback
+}
+
+enum ContentCategory {
+  SEGREGATION
+  REDUCE
+  REUSE
+  RECYCLING
+  FOOD_WASTE
+  RESPONSIBLE_CONSUMPTION
+  CAMPUS_HABITS
+  SDG
+}
+
+enum AdminAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STUDENT)
+  displayName  String /// shown on the public leaderboard; never the email
+  course       String?
+  departmentId String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department          Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  wasteRecords        WasteRecord[]
+  foodWasteRecords    FoodWasteRecord[]
+  pointTransactions   PointTransaction[]
+  streak              Streak?
+  participations      ChallengeParticipation[]
+  adminActivities     AdminActivity[]
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([createdAt])
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+
+  users User[]
+}
+
+/// Server-side session store. The cookie only ever carries an opaque random
+/// token; only its SHA-256 hash is persisted, so a database leak cannot be
+/// replayed as a login.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Single-use password reset tokens. Only the hash is stored.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Activity records
+// ---------------------------------------------------------------------------
+
+model WasteRecord {
+  id         String         @id @default(cuid())
+  userId     String
+  category   WasteCategory
+  itemType   String
+  quantity   Float
+  unit       Unit
+  /// Canonical mass in grams. Only set for mass-based units (g/kg) so that
+  /// aggregate mass figures are never inflated by guessed conversions.
+  massGrams  Float?
+  disposal   DisposalAction
+  /// Campus-local calendar day the activity happened on (date only, no time).
+  recordedOn DateTime       @db.Date
+  notes      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedOn])
+  @@index([category, recordedOn])
+  @@index([recordedOn])
+  @@index([createdAt])
+}
+
+model FoodWasteRecord {
+  id           String       @id @default(cuid())
+  userId       String
+  foodCategory FoodCategory
+  mealType     MealType
+  itemType     String
+  quantity     Float
+  unit         Unit
+  massGrams    Float?
+  avoidable    Boolean      @default(true)
+  recordedOn   DateTime     @db.Date
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedOn])
+  @@index([foodCategory, recordedOn])
+  @@index([recordedOn])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Gamification
+// ---------------------------------------------------------------------------
+
+/// Immutable, append-only ledger. A student's point total is always
+/// SUM(points) over this table — never a denormalised counter.
+model PointTransaction {
+  id         String      @id @default(cuid())
+  userId     String
+  points     Int
+  reason     PointReason
+  detail     String
+  /// Together with sourceId this makes award events idempotent: re-running the
+  /// engine cannot pay a student twice for the same milestone.
+  sourceType String?
+  sourceId   String?
+  createdAt  DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model Streak {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  currentStreak    Int       @default(0)
+  longestStreak    Int       @default(0)
+  lastActivityDate DateTime? @db.Date
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Challenge {
+  id            String          @id @default(cuid())
+  title         String
+  slug          String          @unique
+  description   String
+  metric        ChallengeMetric
+  scope         ChallengeScope
+  /// Optional filters narrowing which records count toward the target.
+  wasteCategory WasteCategory?
+  foodCategory  FoodCategory?
+  disposal      DisposalAction?
+  target        Float
+  targetUnit    String
+  points        Int
+  startDate     DateTime        @db.Date
+  endDate       DateTime        @db.Date
+  active        Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  participations ChallengeParticipation[]
+
+  @@index([active, startDate, endDate])
+}
+
+model ChallengeParticipation {
+  id          String    @id @default(cuid())
+  challengeId String
+  userId      String
+  progress    Float     @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  joinedAt    DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@index([challengeId, completed])
+}
+
+// ---------------------------------------------------------------------------
+// Content (admin-managed, database driven)
+// ---------------------------------------------------------------------------
+
+model DisposalGuide {
+  id                String         @id @default(cuid())
+  item              String
+  slug              String         @unique
+  category          WasteCategory
+  summary           String
+  reduceGuidance    String
+  reuseGuidance     String
+  recycleGuidance   String
+  disposeGuidance   String
+  /// Recommended disposal stream, used to prefill the tracker and to validate
+  /// what "correct segregation" means for the points engine.
+  recommendedAction DisposalAction
+  /// Free-text search keywords, lowercased at write time.
+  keywords          String[]       @default([])
+  published         Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([category])
+  @@index([published])
+}
+
+model EducationalContent {
+  id          String          @id @default(cuid())
+  title       String
+  slug        String          @unique
+  description String
+  category    ContentCategory
+  /// Markdown-ish body rendered as plain paragraphs/lists — never as raw HTML.
+  content     String
+  readMinutes Int             @default(3)
+  published   Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([category])
+  @@index([published])
+}
+
+// ---------------------------------------------------------------------------
+// Configuration — points and recommendations live in the database, not in code
+// ---------------------------------------------------------------------------
+
+model PointsRule {
+  id          String      @id @default(cuid())
+  code        PointReason @unique
+  label       String
+  description String
+  points      Int
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model RecommendationRule {
+  id                 String                @id @default(cuid())
+  code               String                @unique
+  trigger            RecommendationTrigger
+  /// Lower number wins when several rules match. Ties break on `code` so the
+  /// engine is fully deterministic.
+  priority           Int
+  matchWasteCategory WasteCategory?
+  matchFoodCategory  FoodCategory?
+  /// Count / day threshold used by the counting triggers.
+  threshold          Int?
+  /// Look-back window in days for the counting triggers.
+  windowDays         Int?
+  title              String
+  message            String
+  actionLabel        String?
+  actionHref         String?
+  active             Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([active, priority])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String
+  updatedAt   DateTime @updatedAt
+}
+
+/// Audit trail for administrative content changes.
+model AdminActivity {
+  id         String      @id @default(cuid())
+  adminId    String
+  action     AdminAction
+  entityType String
+  entityId   String
+  summary    String
+  createdAt  DateTime    @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@index([createdAt])
+}
