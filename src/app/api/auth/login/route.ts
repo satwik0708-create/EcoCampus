@@ -7,6 +7,7 @@ import {
   enforceRateLimit,
   handleApiError,
   jsonOk,
+  withCookie,
   parseJsonBody,
 } from "@/lib/api";
 import { RATE_LIMITS } from "@/lib/auth/rate-limit";
@@ -40,13 +41,19 @@ export async function POST(request: Request) {
       throw new HttpError(401, GENERIC_FAILURE);
     }
 
-    await createSession(user.id, request.headers.get("user-agent"));
+    const sessionCookie = await createSession(
+      user.id,
+      request.headers.get("user-agent"),
+    );
     void pruneExpiredSessions().catch(() => undefined);
 
-    return jsonOk({
-      ok: true,
-      redirectTo: user.role === Role.ADMIN ? "/admin" : "/student",
-    });
+    return withCookie(
+      jsonOk({
+        ok: true,
+        redirectTo: user.role === Role.ADMIN ? "/admin" : "/student",
+      }),
+      sessionCookie,
+    );
   } catch (error) {
     return handleApiError(error, "auth/login");
   }

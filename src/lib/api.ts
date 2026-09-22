@@ -21,6 +21,29 @@ export function jsonOk<T>(data: T, status = 200): NextResponse {
   return NextResponse.json(data, { status });
 }
 
+/**
+ * Attach a cookie to the response that is actually being returned.
+ *
+ * Use this rather than the ambient `cookies()` store in a route handler:
+ * the ambient store's mutations are merged into the response by the
+ * framework, and that merge is not reliable across runtimes.
+ */
+export function withCookie(
+  response: NextResponse,
+  cookie: {
+    name: string;
+    value: string;
+    options: Record<string, unknown>;
+  },
+): NextResponse {
+  response.cookies.set({
+    name: cookie.name,
+    value: cookie.value,
+    ...cookie.options,
+  });
+  return response;
+}
+
 export function jsonError(
   status: number,
   error: string,

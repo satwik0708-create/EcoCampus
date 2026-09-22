@@ -7,11 +7,12 @@ import {
   ensurePointsRules,
   prisma,
 } from "./helpers/db";
+import { NextResponse } from "next/server";
 import { fakeVerifyPassword, hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createOpaqueToken, hashToken, safeEqual } from "@/lib/auth/tokens";
 import { HttpError, assertOwnership, forbidden } from "@/lib/auth/guards";
-import { assertSameOrigin } from "@/lib/api";
-import type { SessionUser } from "@/lib/auth/session";
+import { assertSameOrigin, withCookie } from "@/lib/api";
+import { createSession, type SessionUser } from "@/lib/auth/session";
 
 beforeAll(async () => {
   await ensurePointsRules();
@@ -115,6 +116,45 @@ describe("session storage", () => {
 
     await prisma.user.delete({ where: { id: student.id } });
     expect(await prisma.session.count({ where: { userId: student.id } })).toBe(0);
+  });
+});
+
+describe("session cookie delivery", () => {
+  it("returns a cookie for the caller to put on the response", async () => {
+    const student = await createTestStudent("cookie");
+    const cookie = await createSession(student.id, "vitest");
+
+    // createSession must hand the cookie back rather than only writing it to
+    // the ambient store: the framework's merge of that store into a
+    // separately constructed NextResponse is not reliable across runtimes,
+    // and when it is dropped the user is signed in server-side but the
+    // browser never receives the session.
+    expect(cookie.value).toBeTruthy();
+    expect(cookie.options.httpOnly).toBe(true);
+    expect(cookie.options.sameSite).toBe("lax");
+    expect(cookie.options.path).toBe("/");
+    expect(cookie.options.expires!.getTime()).toBeGreaterThan(Date.now());
+
+    // The row exists and is keyed by the hash, not the raw token.
+    const stored = await prisma.session.findUnique({
+      where: { tokenHash: hashToken(cookie.value) },
+    });
+    expect(stored!.userId).toBe(student.id);
+  });
+
+  it("actually emits Set-Cookie on the returned response", async () => {
+    const student = await createTestStudent("setcookie");
+    const cookie = await createSession(student.id, "vitest");
+
+    const response = withCookie(
+      NextResponse.json({ ok: true }, { status: 201 }),
+      cookie,
+    );
+
+    const header = response.headers.get("set-cookie");
+    expect(header).toContain(cookie.name);
+    expect(header).toContain("HttpOnly");
+    expect(header).toContain("Path=/");
   });
 });
 
