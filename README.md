@@ -600,9 +600,15 @@ npm start
 ```
 
 Terminate TLS in front of the application — session cookies are marked
-`Secure` in production and will not be set over plain HTTP. Set a trusted
-proxy too: the rate limiter reads the first hop of `X-Forwarded-For`, so
-only your proxy should be able to set that header.
+`Secure` in production and will not be set over plain HTTP.
+
+**Set a trusted proxy.** Two request headers are believed when present:
+`X-Forwarded-For` (the rate limiter reads its first hop) and
+`X-Forwarded-Host` (the CSRF check accepts it as the public hostname,
+because behind a proxy the raw `Host` header is the internal one). Your
+proxy must overwrite both rather than passing through whatever a client
+sent. Vercel, Cloudflare and a correctly configured nginx all do this by
+default.
 
 ### Rate limiting across instances
 

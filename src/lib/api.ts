@@ -162,8 +162,29 @@ export function assertSameOrigin(request: Request): void {
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
 
   const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (!origin || !host) {
+
+  // Behind a proxy the public hostname arrives in `x-forwarded-host`, while
+  // `host` may be the internal or deployment host. On Vercel with a custom
+  // domain the two differ, and comparing the Origin against `host` alone
+  // rejects every legitimate form submission with a 403 — pages load, but
+  // sign-in and sign-up fail.
+  //
+  // Both candidates are accepted. A genuine cross-site POST still fails,
+  // because the attacker's Origin matches neither. As with the
+  // `x-forwarded-for` handling in `clientKey`, this assumes only a trusted
+  // proxy can set the forwarded headers; see the deployment notes in
+  // README.md.
+  const candidates = [
+    request.headers.get("x-forwarded-host"),
+    request.headers.get("host"),
+  ]
+    .filter((value): value is string => !!value)
+    // A forwarded header may carry a comma-separated chain; the first entry
+    // is the host the client actually asked for.
+    .map((value) => value.split(",")[0]!.trim())
+    .filter(Boolean);
+
+  if (!origin || candidates.length === 0) {
     throw new HttpError(403, "Request rejected: missing origin information.");
   }
 
@@ -174,7 +195,7 @@ export function assertSameOrigin(request: Request): void {
     throw new HttpError(403, "Request rejected: malformed origin.");
   }
 
-  if (originHost !== host) {
+  if (!candidates.includes(originHost)) {
     throw new HttpError(403, "Request rejected: cross-site request blocked.");
   }
 }

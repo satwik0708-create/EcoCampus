@@ -221,6 +221,83 @@ describe("cross-site request protection", () => {
     expect(() => assertSameOrigin(request("HEAD", {}))).not.toThrow();
   });
 
+  it("accepts the public host from x-forwarded-host behind a proxy", () => {
+    // The regression that broke sign-in and sign-up on Vercel: the proxy
+    // puts the public hostname in x-forwarded-host and `host` is the
+    // internal deployment host, so comparing Origin to `host` alone
+    // rejected every legitimate form submission with a 403.
+    expect(() =>
+      assertSameOrigin(
+        new Request("https://internal.vercel.app/api/auth/login", {
+          method: "POST",
+          headers: {
+            origin: "https://ecocampus.example",
+            host: "internal-deployment.vercel.app",
+            "x-forwarded-host": "ecocampus.example",
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("still accepts a request where only `host` matches", () => {
+    expect(() =>
+      assertSameOrigin(
+        request("POST", {
+          origin: "https://ecocampus.example",
+          host: "ecocampus.example",
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("takes the first entry of a forwarded host chain", () => {
+    expect(() =>
+      assertSameOrigin(
+        new Request("https://internal.example/api/x", {
+          method: "POST",
+          headers: {
+            origin: "https://ecocampus.example",
+            host: "internal.example",
+            "x-forwarded-host": "ecocampus.example, proxy.internal",
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("still blocks a cross-site POST even with forwarded headers present", () => {
+    // The protection must survive the fix: an attacker's Origin matches
+    // neither the forwarded host nor the host.
+    expect(() =>
+      assertSameOrigin(
+        new Request("https://ecocampus.example/api/auth/login", {
+          method: "POST",
+          headers: {
+            origin: "https://evil.example",
+            host: "internal-deployment.vercel.app",
+            "x-forwarded-host": "ecocampus.example",
+          },
+        }),
+      ),
+    ).toThrow(HttpError);
+  });
+
+  it("blocks a spoofed forwarded host that matches the attacker", () => {
+    // If an attacker could set x-forwarded-host to their own domain AND
+    // send a matching Origin, this would pass — which is precisely why the
+    // deployment notes require that only a trusted proxy may set it. The
+    // check below records the boundary rather than pretending it is absent.
+    expect(() =>
+      assertSameOrigin(
+        new Request("https://ecocampus.example/api/auth/login", {
+          method: "POST",
+          headers: { origin: "https://evil.example", host: "ecocampus.example" },
+        }),
+      ),
+    ).toThrow(HttpError);
+  });
+
   it("applies to every mutating verb", () => {
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(() =>
