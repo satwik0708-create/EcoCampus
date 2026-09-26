@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolveSessionCookieName } from "@/lib/session-cookie";
+
 /**
  * Centralised, validated access to server-side environment variables.
  *
@@ -38,7 +40,7 @@ function validTimeZone(value: string): string {
 
 export const env = {
   databaseUrl: required("DATABASE_URL"),
-  sessionCookieName: process.env.SESSION_COOKIE_NAME ?? "ecocampus_session",
+  sessionCookieName: resolveSessionCookieName(process.env.SESSION_COOKIE_NAME),
   sessionTtlHours: optionalInt("SESSION_TTL_HOURS", 168),
   campusTimeZone: validTimeZone(process.env.CAMPUS_TIMEZONE ?? "Asia/Kolkata"),
   isProduction: process.env.NODE_ENV === "production",

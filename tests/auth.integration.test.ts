@@ -152,7 +152,12 @@ describe("session cookie delivery", () => {
     );
 
     const header = response.headers.get("set-cookie");
-    expect(header).toContain(cookie.name);
+    // `toContain(cookie.name)` alone passes vacuously when the name is empty,
+    // which is exactly how a nameless `Set-Cookie: =<token>` reached
+    // production. Assert the name is real and that the header opens with a
+    // `name=value` pair.
+    expect(cookie.name.length).toBeGreaterThan(0);
+    expect(header).toMatch(new RegExp(`^${cookie.name}=.+`));
     expect(header).toContain("HttpOnly");
     expect(header).toContain("Path=/");
   });

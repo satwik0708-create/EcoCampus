@@ -221,7 +221,7 @@ All variables are documented in [`.env.example`](.env.example).
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | PostgreSQL connection string. |
-| `SESSION_COOKIE_NAME` | no | Session cookie name. Default `ecocampus_session`. |
+| `SESSION_COOKIE_NAME` | no | Session cookie name. Default `ecocampus_session`. Omit the variable to take the default — setting it to an **empty** value is rejected at startup, not silently accepted, because a nameless cookie is discarded by browsers and breaks sign-in without surfacing an error. |
 | `SESSION_TTL_HOURS` | no | Session lifetime in hours. Default `168` (7 days). |
 | `CAMPUS_TIMEZONE` | no | IANA zone used for every campus-day calculation — streaks, daily bonuses, challenge windows. Default `Asia/Kolkata`. |
 | `UPSTASH_REDIS_REST_URL` | no | Upstash REST URL. With the token below, enables distributed rate limiting. Recommended on any multi-instance deployment. |

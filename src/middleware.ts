@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { resolveSessionCookieName } from "@/lib/session-cookie";
+
 /**
  * Edge middleware.
  *
@@ -21,7 +23,7 @@ const PROTECTED_PREFIXES = ["/student", "/admin"];
 const AUTH_PAGES = ["/login", "/register"];
 
 export function middleware(request: NextRequest) {
-  const cookieName = process.env.SESSION_COOKIE_NAME ?? "ecocampus_session";
+  const cookieName = resolveSessionCookieName(process.env.SESSION_COOKIE_NAME);
   const hasSessionCookie = Boolean(request.cookies.get(cookieName)?.value);
   const { pathname, search } = request.nextUrl;
 
