@@ -7,6 +7,7 @@ import {
   enforceRateLimit,
   handleApiError,
   jsonOk,
+  withCookie,
   parseJsonBody,
 } from "@/lib/api";
 import { RATE_LIMITS } from "@/lib/auth/rate-limit";
@@ -68,9 +69,12 @@ export async function POST(request: Request) {
       select: { id: true },
     });
 
-    await createSession(user.id, request.headers.get("user-agent"));
+    const sessionCookie = await createSession(
+      user.id,
+      request.headers.get("user-agent"),
+    );
 
-    return jsonOk({ ok: true, redirectTo: "/student" }, 201);
+    return withCookie(jsonOk({ ok: true, redirectTo: "/student" }, 201), sessionCookie);
   } catch (error) {
     return handleApiError(error, "auth/register");
   }

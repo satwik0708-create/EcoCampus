@@ -7,6 +7,7 @@ import {
   enforceRateLimit,
   handleApiError,
   jsonOk,
+  withCookie,
   parseJsonBody,
 } from "@/lib/api";
 import { RATE_LIMITS } from "@/lib/auth/rate-limit";
@@ -43,12 +44,18 @@ export async function POST(request: Request) {
     // Evict every session, then re-issue one for this browser so the user is
     // not signed out of the tab they are actively using.
     await destroyAllSessionsForUser(actor.id);
-    await createSession(actor.id, request.headers.get("user-agent"));
+    const sessionCookie = await createSession(
+      actor.id,
+      request.headers.get("user-agent"),
+    );
 
-    return jsonOk({
-      ok: true,
-      message: "Password updated. Other devices have been signed out.",
-    });
+    return withCookie(
+      jsonOk({
+        ok: true,
+        message: "Password updated. Other devices have been signed out.",
+      }),
+      sessionCookie,
+    );
   } catch (error) {
     return handleApiError(error, "auth/change-password");
   }

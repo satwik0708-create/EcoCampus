@@ -14,6 +14,30 @@ import { createOpaqueToken, hashToken } from "@/lib/auth/tokens";
  * a client can never assert "I am an admin".
  */
 
+/**
+ * A cookie for the caller to attach to the response it returns.
+ *
+ * `createSession` deliberately does NOT write to the ambient `cookies()`
+ * store. Relying on Next to merge that store's mutations into a separately
+ * constructed `NextResponse` works on a self-hosted Node server but drops the
+ * Set-Cookie header on some serverless runtimes — the session is created in
+ * the database, the browser never receives it, and the user is bounced back
+ * to the sign-in page with no error. Returning the cookie and setting it on
+ * the response is explicit and behaves identically everywhere.
+ */
+export type SessionCookie = {
+  name: string;
+  value: string;
+  options: {
+    httpOnly: boolean;
+    sameSite: "lax";
+    secure: boolean;
+    path: string;
+    expires?: Date;
+    maxAge?: number;
+  };
+};
+
 export type SessionUser = {
   id: string;
   name: string;
@@ -39,7 +63,7 @@ function toSessionUser(user: User): SessionUser {
 export async function createSession(
   userId: string,
   userAgent?: string | null,
-): Promise<void> {
+): Promise<SessionCookie> {
   const token = createOpaqueToken();
   const expiresAt = new Date(Date.now() + env.sessionTtlHours * 3_600_000);
 
@@ -52,24 +76,40 @@ export async function createSession(
     },
   });
 
-  const store = await cookies();
-  store.set(env.sessionCookieName, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: env.isProduction,
-    path: "/",
-    expires: expiresAt,
-  });
+  return {
+    name: env.sessionCookieName,
+    value: token,
+    options: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: env.isProduction,
+      path: "/",
+      expires: expiresAt,
+    },
+  };
 }
 
-export async function destroyCurrentSession(): Promise<void> {
+export async function destroyCurrentSession(): Promise<SessionCookie> {
   const store = await cookies();
   const token = store.get(env.sessionCookieName)?.value;
   if (token) {
     // deleteMany rather than delete: a stale cookie must not throw.
     await prisma.session.deleteMany({ where: { tokenHash: hashToken(token) } });
   }
-  store.delete(env.sessionCookieName);
+
+  // Expire the cookie on the response, for the same reason createSession
+  // returns it rather than mutating the ambient store.
+  return {
+    name: env.sessionCookieName,
+    value: "",
+    options: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: env.isProduction,
+      path: "/",
+      maxAge: 0,
+    },
+  };
 }
 
 /** Invalidate every session for a user (used after a password change/reset). */
